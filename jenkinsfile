@@ -14,23 +14,8 @@ pipeline {
         echo "checked out commit : ${env.GIT_COMMIT}"
       }
     }
-    stage('build app') {
-      steps {
-        echo "no building its a static app"
-        sh 'ls -la'
-      }
-    }
-    stage('docker build -native') {
-      steps {
-        echo "docker building native way"
-        sh """
-        docker build \
-        -t ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG} \
-        . 
-        """
-      }
-    }
-    stage('push to docker hub') {
+
+    stage('login to docker hub') {
       steps {
         withCredentials([
           usernamePassword(
@@ -41,9 +26,8 @@ pipeline {
         ]) {
           sh """
           echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-          docker push ${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}
           """
-          echo "pushed succesfully"
+          echo "logined succesfully"
         }
       }
     }
