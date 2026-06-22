@@ -21,7 +21,7 @@ pipeline {
     stage('build native') {
       parallel {
         stage('build x86') {
-          agent { label 'x86-agent'}
+          agent any
           steps{
             checkout scm 
             withCredentials([
@@ -109,7 +109,7 @@ pipeline {
     stage('testing'){
       parallel {
         stage('test on x86'){
-          agent {label 'x86-agent'}
+          agent any
           steps {
             sh """
             docker pull ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
@@ -127,7 +127,7 @@ pipeline {
           docker pull ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
           docker run -d --name calc-test-arm -p 8090:80 ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
           sleep 3
-          curl -f http://localhost:8090 | grep -q 'Calculator' && echo '✅ arm64 test passed'
+          curl -f http://localhost:80 | grep -q 'Calculator' && echo '✅ arm64 test passed'
           docker stop calc-test-arm && docker rm calc-test-arm
         """
       }
