@@ -1,7 +1,7 @@
 pipeline {
   agent any 
   environment {
-      IMAGE_NAME = "rajesh20032003/calc-jen"
+      IMAGE_NAME = "calc-jen"
       IMAGE_TAG = "${env.BUILD_NUMBER}"
       REGISTRY_CREDS = "dockerhub-creds"
       USER_NAME = "rajesh00007"
