@@ -21,10 +21,12 @@ pipeline {
     }
     stage('docker build -native') {
       steps {
-        echo "docker build"
-        sh '
-        docker build -t .
-        '
+        echo "docker building native way"
+        sh """
+        docker build \
+        -t ${IMAGE_NAME}:${IMAGE_TAG} \
+        . 
+        """
       }
     }
   }
