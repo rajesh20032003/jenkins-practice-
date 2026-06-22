@@ -61,7 +61,7 @@ pipeline {
         }
       }
     }
-    stage('build and push multi arch image')
+    stage('build and push multi arch image'){
     steps {
       sh """
       docker buildx build \
@@ -71,6 +71,7 @@ pipeline {
         --file dockerfile \
         --push .
       """
+    }
     }
   }
 }
