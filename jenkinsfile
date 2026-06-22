@@ -65,9 +65,9 @@ pipeline {
     steps {
       sh """
       docker buildx build \
-        --platform linux/amd64, linux/arm64 \
+        --platform linux/amd64,linux/arm64 \
         --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG} \
-        -- tag ${USER_NAME}/${IMAGE_NAME}:LATEST \
+        --tag ${USER_NAME}/${IMAGE_NAME}:LATEST \
         --file dockerfile \
         --push .
       """
