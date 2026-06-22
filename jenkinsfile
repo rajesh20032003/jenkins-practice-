@@ -1,0 +1,92 @@
+pipeline {
+  agent any 
+  environment {
+    IMAGE_NAME = "rajesh00007/calculator-jenkins"
+    IMAGE_TAG = "${env.BUILD_NUMBER}"
+    REGISTRY_CRED = "dockerhub-creds"
+  }
+
+  stages {
+    stage('checkout') {
+      steps {
+        checkout scm 
+        echo "checked out commit: ${env.GIT_COMMIT}"
+      }
+    }
+
+    stage('build app') {
+      steps {
+        echo "static app no build setup needed "
+        sh 'ls -la'
+      }
+    }
+
+    #docker build x86
+
+    stage('docker build x86') {
+      steps {
+        script {
+          sh """
+          docker buildx create --use --name multibuilder --driver docker-container || true 
+
+          docker buildx build \
+            -- platform linux/amd64 \
+            -- tag ${IMAGE_NAME}:${IMAGE_TAG}-amd64 \
+            -- load \
+            ./
+          """
+        }
+      }
+    }
+
+    ##build on arm 
+
+    stage("docker build arm") {
+      steps {
+        script {
+          sh """ 
+          docker buildx build \
+          -- platform linux/arm64 \
+          --tag ${IMAGE_NAME}:${IMAGE_TAG}-arm64 \ 
+          -- load \
+          ./
+          """
+        }
+      }
+    }
+
+    stage("testx86") {
+      steps {
+        script {
+          sh """
+           docker run -d --name calc-test-x86 -p 8090:80 ${IMAGE_NAME}:${IMAGE_TAG}-amd54
+           sleep 5 
+           curl -f http://localhost:8090 | grep -q 'calculator' && echo 'x86 test passed'
+           docker stop calc-test-x86 && docker rm calc-test-x86
+           """
+        }
+      }
+    }
+     stage('Verify Manifest') {
+            steps {
+                sh """
+                    docker buildx imagetools inspect ${IMAGE_NAME}:${IMAGE_TAG}
+                """
+            }
+        }
+    }
+ 
+    post {
+        always {
+            sh 'docker buildx rm multibuilder || true'
+            sh 'docker rmi ${IMAGE_NAME}:${IMAGE_TAG}-amd64 ${IMAGE_NAME}:${IMAGE_TAG}-arm64 || true'
+        }
+        success {
+            echo "Pipeline succeeded! Image: ${IMAGE_NAME}:${IMAGE_TAG}"
+        }
+        failure {
+            echo "Pipeline failed. Check logs above."
+        }
+    
+  }
+}
