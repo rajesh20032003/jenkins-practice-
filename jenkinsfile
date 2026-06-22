@@ -37,8 +37,6 @@ pipeline {
               docker build \
               --platform linux/amd64 \
               --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}-amd64 \
-              --cache-from type=registry,ref=${USER_NAME}:${IMAGE_NAME}
-              --cache-to type=registry, ref=${USER_NAME}:${IMAGE_NAME}
               --file dockerfile \
               --push .
 
