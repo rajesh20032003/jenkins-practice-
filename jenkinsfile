@@ -4,6 +4,7 @@ pipeline {
       IMAGE_NAME = "rajesh20032003/calc-jen"
       IMAGE_TAG = "${env.BUILD_NUMBER}"
       REGISTRY_CREDS = "dockerhub-creds"
+      USER_NAME = rajesh00007
   }
 
   stages {
@@ -24,7 +25,7 @@ pipeline {
         echo "docker building native way"
         sh """
         docker build \
-        -t ${IMAGE_NAME}:${IMAGE_TAG} \
+        -t ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG} \
         . 
         """
       }
