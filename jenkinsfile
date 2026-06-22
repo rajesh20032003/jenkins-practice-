@@ -47,5 +47,19 @@ pipeline {
         }
       }
     }
+
+    stage('setup buildx') {
+      steps {
+        script {
+          // 1. enable qemu multi-architecture emulation support 
+          sh ' docker run --rm --privileged tonistiigi/binfmt --install all'
+          //2. create and switch to new buildx instances (required for multi platform)
+          sh '''
+          docker buildx create --name jenkins-builder --driver docker-container --use || true
+          docker buildx inspect --bootstrap
+          '''
+        }
+      }
+    }
   }
 }
