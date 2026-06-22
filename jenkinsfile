@@ -21,8 +21,6 @@ pipeline {
       }
     }
 
-    #docker build x86
-
     stage('docker build x86') {
       steps {
         script {
@@ -30,25 +28,24 @@ pipeline {
           docker buildx create --use --name multibuilder --driver docker-container || true 
 
           docker buildx build \
-            -- platform linux/amd64 \
-            -- tag ${IMAGE_NAME}:${IMAGE_TAG}-amd64 \
-            -- load \
+            --platform linux/amd64 \
+            --tag ${IMAGE_NAME}:${IMAGE_TAG}-amd64 \
+            --load \
             ./
           """
         }
       }
     }
 
-    ##build on arm 
 
     stage("docker build arm") {
       steps {
         script {
           sh """ 
           docker buildx build \
-          -- platform linux/arm64 \
+          --platform linux/arm64 \
           --tag ${IMAGE_NAME}:${IMAGE_TAG}-arm64 \ 
-          -- load \
+          --load \
           ./
           """
         }
@@ -59,7 +56,7 @@ pipeline {
       steps {
         script {
           sh """
-           docker run -d --name calc-test-x86 -p 8090:80 ${IMAGE_NAME}:${IMAGE_TAG}-amd54
+           docker run -d --name calc-test-x86 -p 8090:80 ${IMAGE_NAME}:${IMAGE_TAG}-amd64
            sleep 5 
            curl -f http://localhost:8090 | grep -q 'calculator' && echo 'x86 test passed'
            docker stop calc-test-x86 && docker rm calc-test-x86
