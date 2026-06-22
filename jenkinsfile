@@ -11,8 +11,11 @@ pipeline {
   stages {
 
     stage('checkout code') {
+      agent any
+      steps{
       checkout scm 
       echo "checkedout the code"
+    }
     }
     
     stage('build native') {
