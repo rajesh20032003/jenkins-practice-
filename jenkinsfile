@@ -52,6 +52,8 @@ pipeline {
         --platform linux/amd64,linux/arm64 \
         --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG} \
         --tag ${USER_NAME}/${IMAGE_NAME}:LATEST \
+        --cache-from type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache \
+        --cache-to type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache,mode=max \
         --file dockerfile \
         --push .
       """
