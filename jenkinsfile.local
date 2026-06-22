@@ -1,0 +1,63 @@
+pipeline {
+  agent any 
+  environment {
+      IMAGE_NAME = "calc-jen"
+      IMAGE_TAG = "${env.BUILD_NUMBER}"
+      REGISTRY_CREDS = "dockerhub-creds"
+      USER_NAME = "rajesh00007"
+  }
+
+  stages {
+    stage('checkout the scm') {
+      steps {
+        checkout scm 
+        echo "checked out commit : ${env.GIT_COMMIT}"
+      }
+    }
+
+    stage('login to docker hub') {
+      steps {
+        withCredentials([
+          usernamePassword(
+            credentialsId: 'dockerhub-creds',
+            usernameVariable: 'DOCKER_USER',
+            passwordVariable: 'DOCKER_PASS'
+          )
+        ]) {
+          sh """
+          echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+          """
+          echo "logined succesfully"
+        }
+      }
+    }
+
+    stage('setup buildx') {
+      steps {
+        script {
+          // 1. enable qemu multi-architecture emulation support 
+          sh ' docker run --rm --privileged tonistiigi/binfmt --install all'
+          //2. create and switch to new buildx instances (required for multi platform)
+          sh '''
+          docker buildx create --name jenkins-builder --driver docker-container --use || true
+          docker buildx inspect --bootstrap
+          '''
+        }
+      }
+    }
+    stage('build and push multi arch image'){
+    steps {
+      sh """
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG} \
+        --tag ${USER_NAME}/${IMAGE_NAME}:LATEST \
+        --cache-from type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache \
+        --cache-to type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache,mode=max \
+        --file dockerfile \
+        --push .
+      """
+    }
+    }
+  }
+}

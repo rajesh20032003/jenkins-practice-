@@ -1,63 +1,135 @@
 pipeline {
-  agent any 
+  agent none 
+
   environment {
-      IMAGE_NAME = "calc-jen"
-      IMAGE_TAG = "${env.BUILD_NUMBER}"
-      REGISTRY_CREDS = "dockerhub-creds"
-      USER_NAME = "rajesh00007"
+     IMAGE_NAME    = "calc-jen"
+    IMAGE_TAG     = "${env.BUILD_NUMBER}"
+    REGISTRY_CREDS = "dockerhub-creds"
+    USER_NAME     = "rajesh00007"
   }
 
   stages {
-    stage('checkout the scm') {
-      steps {
-        checkout scm 
-        echo "checked out commit : ${env.GIT_COMMIT}"
+
+    stage('checkout code') {
+      checkout scm 
+      echo "checkedout the code"
+    }
+    
+    stage('build native') {
+      parallel {
+        stage('build x86') {
+          agent { label 'x86-agent'}
+          steps{
+            checkout scm 
+            withCredentials([
+              usernamePassword(
+                credentialsId: 'dockerhub-creds',
+                usernameVariable: 'DOCKER_USER',
+                passwordVariable: 'DOCKER_PASS'
+              )
+            ]) {
+              sh """ 
+              echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
+
+              docker build \
+              --platform linux/amd64 \
+              --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}-amd64 \
+              --cache-from type=registry,ref=${USER_NAME}:${IMAGE_NAME}
+              --cache-to type=registry, ref=${USER_NAME}:${IMAGE_NAME}
+              --file dockerfile \
+              --push .
+
+              docker logout 
+              """
+            }
+          }
+        }
+
+        stage('build arm64') {
+          agent {label 'arm-agent'}
+          steps {
+            checkout scm 
+            withCredentials([usernamePassword(
+              credentialsId: 'dockerhub-creds',
+              usernameVariable: 'DOCKER_USER',
+              passwordVariable: 'DOCKER_PASS'
+            )]) {
+              sh """
+              echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
+
+              docker build \
+                --platform linux/arm64 \
+                --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}-arm64 \
+                --file dockerfile \
+                --push .
+
+              docker logout 
+              """
+            }
+          }
+        }
       }
     }
 
-    stage('login to docker hub') {
-      steps {
-        withCredentials([
-          usernamePassword(
-            credentialsId: 'dockerhub-creds',
-            usernameVariable: 'DOCKER_USER',
-            passwordVariable: 'DOCKER_PASS'
-          )
-        ]) {
+    stage('combine manifest') {
+      agent any 
+      steps{
+         withCredentials([usernamePassword(
+          credentialsId: 'dockerhub-creds',
+          usernameVariable: 'DOCKER_USER',
+          passwordVariable: 'DOCKER_PASS'
+        )]) {
           sh """
-          echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+           echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
+
+            docker buildx imagetools create \
+              --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG} \
+              --tag ${USER_NAME}/${IMAGE_NAME}:latest \
+              ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}-amd64 \
+              ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}-arm64
+
+              docker logout 
           """
-          echo "logined succesfully"
         }
       }
     }
 
-    stage('setup buildx') {
+    stage ('verify manifest') {
+      agent any 
       steps {
-        script {
-          // 1. enable qemu multi-architecture emulation support 
-          sh ' docker run --rm --privileged tonistiigi/binfmt --install all'
-          //2. create and switch to new buildx instances (required for multi platform)
-          sh '''
-          docker buildx create --name jenkins-builder --driver docker-container --use || true
-          docker buildx inspect --bootstrap
-          '''
-        }
+        sh """
+        docker buildx imagetools inspect ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
+        """
       }
     }
-    stage('build and push multi arch image'){
-    steps {
-      sh """
-      docker buildx build \
-        --platform linux/amd64,linux/arm64 \
-        --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG} \
-        --tag ${USER_NAME}/${IMAGE_NAME}:LATEST \
-        --cache-from type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache \
-        --cache-to type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache,mode=max \
-        --file dockerfile \
-        --push .
-      """
-    }
+
+    stage('testing'){
+      parallel {
+        stage('test on x86'){
+          agent {label 'x86-agent'}
+          steps {
+            sh """
+            docker pull ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
+            docker run -d --name calc-test-x86 -p 8090:80 ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
+          sleep 3
+          curl -f http://localhost:8090 | grep -q 'Calculator' && echo '✅ x86 test passed'
+          docker stop calc-test-x86 && docker rm calc-test-x86
+            """
+          }
+        }
+     stage('test on arm64') {
+      agent { label 'arm-agent' }
+      steps {
+        sh """
+          docker pull ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
+          docker run -d --name calc-test-arm -p 8090:80 ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
+          sleep 3
+          curl -f http://localhost:8090 | grep -q 'Calculator' && echo '✅ arm64 test passed'
+          docker stop calc-test-arm && docker rm calc-test-arm
+        """
+      }
+    } 
+      }
     }
   }
 }
