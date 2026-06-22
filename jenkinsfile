@@ -66,11 +66,19 @@ pipeline {
               sh """
               echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
 
-              docker build \
-                --platform linux/arm64 \
-                --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}-arm64 \
-                --file dockerfile \
-                --push .
+             docker buildx create \
+               --name arm-builder \
+               --driver docker-container \
+               --use || true
+
+              docker buildx inspect --bootstrap
+              docker buildx build \
+              --platform linux/arm64 \
+              --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}-arm64 \
+              --cache-from type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache \
+              --cache-to type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache,mode=max \
+              --file dockerfile \
+              --push .
 
               docker logout 
               """
