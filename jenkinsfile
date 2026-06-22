@@ -43,9 +43,9 @@ pipeline {
         script {
           sh """ 
           docker buildx build \
-          --platform linux/arm64 \
-          --tag ${IMAGE_NAME}:${IMAGE_TAG}-arm64 \ 
-          --load \
+          --platform linux/arm64 \ 
+           --tag ${IMAGE_NAME}:${IMAGE_TAG}-arm64 \
+                     --load \
           ./
           """
         }
