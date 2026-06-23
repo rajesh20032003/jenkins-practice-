@@ -1,103 +1,130 @@
 pipeline {
-  agent none 
+  agent none
 
   environment {
-     IMAGE_NAME    = "calc-jen"
+    IMAGE_NAME    = "calc-jen"
     IMAGE_TAG     = "${env.BUILD_NUMBER}"
-    REGISTRY_CREDS = "dockerhub-creds"
     USER_NAME     = "rajesh00007"
   }
 
   stages {
 
-    stage('checkout code') {
+    stage('checkout') {
       agent any
-      steps{
-      checkout scm 
-      echo "checkedout the code"
+      steps {
+        checkout scm
+        echo "commit: ${env.GIT_COMMIT}"
+      }
     }
-    }
-    
+
     stage('build native') {
       parallel {
+
         stage('build x86') {
+          // still using plain agent for x86 (phase 3 only has arm k8s agent)
           agent any
-          steps{
-            checkout scm 
-            withCredentials([
-              usernamePassword(
-                credentialsId: 'dockerhub-creds',
-                usernameVariable: 'DOCKER_USER',
-                passwordVariable: 'DOCKER_PASS'
-              )
-            ]) {
-              sh """ 
-              echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
-
-              docker buildx create \
-               --name x86-builder \
-               --driver docker-container \
-               --use || true
-
-              docker buildx inspect --bootstrap
-              docker buildx build \
-              --platform linux/amd64 \
-              --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}-amd64 \
-              --cache-from type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache \
-              --cache-to type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache,mode=max \
-              --file dockerfile \
-              --push .
-
-              docker logout 
-              """
-            }
-          }
-        }
-
-        stage('build arm64') {
-          agent {label 'arm-agent'}
           steps {
-            checkout scm 
+            checkout scm
             withCredentials([usernamePassword(
               credentialsId: 'dockerhub-creds',
               usernameVariable: 'DOCKER_USER',
               passwordVariable: 'DOCKER_PASS'
             )]) {
               sh """
-              echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
+                echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
 
-             docker buildx create \
-               --name arm-builder \
-               --driver docker-container \
-               --use || true
+                docker buildx create \
+                  --name x86-builder \
+                  --driver docker-container \
+                  --use || true
 
-              docker buildx inspect --bootstrap
-              docker buildx build \
-              --platform linux/arm64 \
-              --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}-arm64 \
-              --cache-from type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache \
-              --cache-to type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache,mode=max \
-              --file dockerfile \
-              --push .
+                docker buildx build \
+                  --platform linux/amd64 \
+                  --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}-amd64 \
+                  --cache-from type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache \
+                  --cache-to type=registry,ref=${USER_NAME}/${IMAGE_NAME}:buildcache,mode=max \
+                  --file dockerfile \
+                  --push .
 
-              docker logout 
+                docker logout
               """
             }
           }
         }
+
+        stage('build arm64 - k8s agent') {
+         agent {
+          kubernetes {
+            cloud 'k3s-arm'
+            label 'arm-k8s-agent'
+            yaml """
+            apiVersion: v1
+            kind: Pod
+            metadata:
+              labels:
+                app: jenkins-agent
+            spec:
+              containers:
+                - name: jnlp
+                  image: jenkins/inbound-agent:latest
+                  resources:
+                    requests:
+                      memory: "256Mi"
+                      cpu: "250m"
+                - name: docker 
+                  image: docker:27-dind
+                  securityContext:
+                    privileged: true
+                  env:
+                  - name: DOCKER_TLS_CERTDIR
+                    value: ""
+                  volumeMounts:
+                    - name: docker-sock
+                      mounthPath: /var/run/docker.sock
+                  volumes:
+                  - name: docker-sock
+                    hostPath:
+                      path: /var/run/docker.sock
+            """
+          }
+         }
+          steps {
+            container('docker') {
+              checkout scm
+              withCredentials([usernamePassword(
+                credentialsId: 'dockerhub-creds',
+                usernameVariable: 'DOCKER_USER',
+                passwordVariable: 'DOCKER_PASS'
+              )]) {
+                sh """
+                  echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
+
+                  docker build \
+                    --platform linux/arm64 \
+                    --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}-arm64 \
+                    --file dockerfile \
+                    --push .
+
+                  docker logout
+                """
+              }
+            }
+          }
+        }
+
       }
     }
 
     stage('combine manifest') {
-      agent any 
-      steps{
-         withCredentials([usernamePassword(
+      agent any
+      steps {
+        withCredentials([usernamePassword(
           credentialsId: 'dockerhub-creds',
           usernameVariable: 'DOCKER_USER',
           passwordVariable: 'DOCKER_PASS'
         )]) {
           sh """
-           echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
+            echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
 
             docker buildx imagetools create \
               --tag ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG} \
@@ -105,48 +132,87 @@ pipeline {
               ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}-amd64 \
               ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}-arm64
 
-              docker logout 
+            docker logout
           """
         }
       }
     }
 
-    stage ('verify manifest') {
-      agent any 
+    stage('verify manifest') {
+      agent any
       steps {
         sh """
-        docker buildx imagetools inspect ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
+          docker buildx imagetools inspect ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
         """
       }
     }
 
-    stage('testing'){
+    stage('test') {
       parallel {
-        stage('test on x86'){
+        stage('test x86') {
           agent any
           steps {
             sh """
-            docker pull ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
-            docker run -d --name calc-test-x86 -p 8090:80 ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
-          sleep 3
-          curl -f http://localhost:8090 | grep -q 'Calculator' && echo '✅ x86 test passed'
-          docker stop calc-test-x86 && docker rm calc-test-x86
+              docker pull ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
+              docker run -d --name calc-test-x86 -p 8090:80 ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
+              sleep 3
+              curl -f http://localhost:8090 | grep -q 'Calculator' && echo '✅ x86 passed'
+              docker stop calc-test-x86 && docker rm calc-test-x86
             """
           }
         }
-     stage('test on arm64') {
-      agent { label 'arm-agent' }
-      steps {
-        sh """
-          docker pull ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
-          docker run -d --name calc-test-arm -p 8090:80 ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
-          sleep 3
-          curl -f http://localhost:80 | grep -q 'Calculator' && echo '✅ arm64 test passed'
-          docker stop calc-test-arm && docker rm calc-test-arm
-        """
+
+        stage('test arm64 - k8s agent') {
+          agent {
+            kubernetes {
+              cloud 'k3s-arm'
+              label 'arm-k8s-agent'
+              yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: jnlp
+    image: jenkins/inbound-agent:latest
+  - name: docker
+    image: docker:27-dind
+    securityContext:
+      privileged: true
+    env:
+    - name: DOCKER_TLS_CERTDIR
+      value: ""
+    volumeMounts:
+    - name: docker-sock
+      mountPath: /var/run/docker.sock
+  volumes:
+  - name: docker-sock
+    hostPath:
+      path: /var/run/docker.sock
+"""
+            }
+          }
+          steps {
+            container('docker') {
+              sh """
+                docker pull ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
+                docker run -d --name calc-test-arm -p 9090:80 ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}
+                sleep 3
+                curl -f http://localhost:9090 | grep -q 'Calculator' && echo '✅ arm64 passed'
+                docker stop calc-test-arm && docker rm calc-test-arm
+              """
+            }
+          }
+        }
       }
-    } 
-      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ Phase 3 done! Image: ${USER_NAME}/${IMAGE_NAME}:${IMAGE_TAG}"
+    }
+    failure {
+      echo "❌ Pipeline failed!"
     }
   }
 }
