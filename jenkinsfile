@@ -55,7 +55,7 @@ pipeline {
         stage('build arm64 - k8s agent') {
          agent {
           kubernetes {
-            cloud 'k3s-arm'
+            cloud 'arm'
             label 'arm-k8s-agent'
             yaml """
             apiVersion: v1
